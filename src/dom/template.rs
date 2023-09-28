@@ -1,6 +1,7 @@
 use crate::shared::structs::{DynamicAttr, TemplateConstruction, TemplateInstantiation};
 use crate::TransformVisitor;
-use swc_core::ecma::utils::quote_ident;
+use swc_core::common::Span;
+use swc_core::ecma::utils::{quote_ident, prepend_stmt};
 use swc_core::{
     common::{comments::Comments, DUMMY_SP},
     ecma::ast::*,
@@ -8,127 +9,185 @@ use swc_core::{
 
 use super::element::AttrOptions;
 
-pub fn create_template_dom<C: Comments>(
-    mut visitor: &mut TransformVisitor<C>,
-    result: &mut TemplateInstantiation,
-    wrap: bool,
-) -> Expr {
-    if let Some(id) = result.id.clone() {
-        register_template::<C>(&mut visitor, result);
-        if result.exprs.is_empty()
-            && result.dynamics.is_empty()
-            && result.post_exprs.is_empty()
-            && result.declarations.len() == 1
-        {
-            return *result.declarations[0].init.clone().unwrap();
-        } else {
+impl<C> TransformVisitor<C>
+where
+    C: Comments,
+{
+    pub fn create_template_dom(&mut self, result: &mut TemplateInstantiation, wrap: bool) -> Expr {
+        if let Some(id) = result.id.clone() {
+            self.register_template_dom( result);
+            if result.exprs.is_empty()
+                && result.dynamics.is_empty()
+                && result.post_exprs.is_empty()
+                && result.declarations.len() == 1
+            {
+                return *result.declarations[0].init.clone().unwrap();
+            } else {
+                return Expr::Call(CallExpr {
+                    span: DUMMY_SP,
+                    callee: Callee::Expr(Box::new(Expr::Arrow(ArrowExpr {
+                        span: DUMMY_SP,
+                        params: vec![],
+                        body: Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
+                            span: DUMMY_SP,
+                            stmts: [Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                                span: DUMMY_SP,
+                                kind: VarDeclKind::Const,
+                                declare: false,
+                                decls: result.declarations.clone(),
+                            })))]
+                            .into_iter()
+                            .chain(result.exprs.clone().into_iter().map(|x| {
+                                Stmt::Expr(ExprStmt {
+                                    span: DUMMY_SP,
+                                    expr: Box::new(x),
+                                })
+                            }))
+                            .chain(
+                                wrap_dynamics::<C>(self, &mut result.dynamics)
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|x| {
+                                        Stmt::Expr(ExprStmt {
+                                            span: DUMMY_SP,
+                                            expr: Box::new(x),
+                                        })
+                                    }),
+                            )
+                            .chain(result.post_exprs.clone().into_iter().map(|x| {
+                                Stmt::Expr(ExprStmt {
+                                    span: DUMMY_SP,
+                                    expr: Box::new(x),
+                                })
+                            }))
+                            .chain([Stmt::Return(ReturnStmt {
+                                span: DUMMY_SP,
+                                arg: Some(Box::new(Expr::Ident(id))),
+                            })])
+                            .collect(),
+                        })),
+                        is_async: false,
+                        is_generator: false,
+                        type_params: None,
+                        return_type: None,
+                    }))),
+                    args: vec![],
+                    type_args: None,
+                });
+            }
+        }
+
+        if wrap && result.dynamic && !self.config.memo_wrapper.is_empty() {
             return Expr::Call(CallExpr {
                 span: DUMMY_SP,
-                callee: Callee::Expr(Box::new(Expr::Arrow(ArrowExpr {
-                    span: DUMMY_SP,
-                    params: vec![],
-                    body: Box::new(BlockStmtOrExpr::BlockStmt(BlockStmt {
-                        span: DUMMY_SP,
-                        stmts: [Stmt::Decl(Decl::Var(Box::new(VarDecl {
-                            span: DUMMY_SP,
-                            kind: VarDeclKind::Const,
-                            declare: false,
-                            decls: result.declarations.clone(),
-                        })))]
-                        .into_iter()
-                        .chain(result.exprs.clone().into_iter().map(|x| {
-                            Stmt::Expr(ExprStmt {
-                                span: DUMMY_SP,
-                                expr: Box::new(x),
-                            })
-                        }))
-                        .chain(
-                            wrap_dynamics::<C>(&mut visitor, &mut result.dynamics)
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|x| {
-                                    Stmt::Expr(ExprStmt {
-                                        span: DUMMY_SP,
-                                        expr: Box::new(x),
-                                    })
-                                }),
-                        )
-                        .chain(result.post_exprs.clone().into_iter().map(|x| {
-                            Stmt::Expr(ExprStmt {
-                                span: DUMMY_SP,
-                                expr: Box::new(x),
-                            })
-                        }))
-                        .chain([Stmt::Return(ReturnStmt {
-                            span: DUMMY_SP,
-                            arg: Some(Box::new(Expr::Ident(id))),
-                        })])
-                        .collect(),
-                    })),
-                    is_async: false,
-                    is_generator: false,
-                    type_params: None,
-                    return_type: None,
-                }))),
-                args: vec![],
+                callee: Callee::Expr(Box::new(Expr::Ident(
+                    self.register_import_method(&self.config.memo_wrapper.clone()),
+                ))),
+                args: vec![result.exprs[0].clone().into()],
                 type_args: None,
             });
         }
+
+        result.exprs[0].clone()
     }
 
-    if wrap && result.dynamic && !visitor.config.memo_wrapper.is_empty() {
-        return Expr::Call(CallExpr {
-            span: DUMMY_SP,
-            callee: Callee::Expr(Box::new(Expr::Ident(
-                visitor.register_import_method(&visitor.config.memo_wrapper.clone()),
-            ))),
-            args: vec![result.exprs[0].clone().into()],
-            type_args: None,
-        });
-    }
+    pub fn register_template_dom(&mut self, results: &mut TemplateInstantiation) {
+        let decl: VarDeclarator;
 
-    result.exprs[0].clone()
-}
+        if !results.template.is_empty() {
+            let template_id: Ident;
+            if !results.skip_template {
+                let template_def = self
+                    .templates
+                    .iter()
+                    .find(|t| t.template == results.template);
+                if let Some(template_def) = template_def {
+                    template_id = template_def.id.clone();
+                } else {
+                    template_id = self.generate_uid_identifier("tmpl$");
+                    self.templates.push(TemplateConstruction {
+                        id: template_id.clone(),
+                        template: results.template.clone(),
+                        is_svg: results.is_svg,
+                        is_ce: results.has_custom_element,
+                    });
+                }
 
-pub fn register_template<C: Comments>(
-    visitor: &mut TransformVisitor<C>,
-    results: &mut TemplateInstantiation,
-) {
-    let decl: VarDeclarator;
-
-    if !results.template.is_empty() {
-        let template_id: Ident;
-        if !results.skip_template {
-            let template_def = visitor
-                .templates
-                .iter()
-                .find(|t| t.template == results.template);
-            if let Some(template_def) = template_def {
-                template_id = template_def.id.clone();
-            } else {
-                template_id = visitor.generate_uid_identifier("tmpl$");
-                visitor.templates.push(TemplateConstruction {
-                    id: template_id.clone(),
-                    template: results.template.clone(),
-                    is_svg: results.is_svg,
-                    is_ce: results.has_custom_element,
-                });
-            }
-
-            decl = VarDeclarator {
-                span: DUMMY_SP,
-                name: Pat::Ident(results.id.clone().unwrap().into()),
-                init: Some(Box::new(Expr::Call(CallExpr {
+                decl = VarDeclarator {
                     span: DUMMY_SP,
-                    callee: Callee::Expr(Box::new(Expr::Ident(template_id))),
-                    args: vec![],
-                    type_args: None,
-                }))),
-                definite: false,
-            };
+                    name: Pat::Ident(results.id.clone().unwrap().into()),
+                    init: Some(Box::new(Expr::Call(CallExpr {
+                        span: DUMMY_SP,
+                        callee: Callee::Expr(Box::new(Expr::Ident(template_id))),
+                        args: vec![],
+                        type_args: None,
+                    }))),
+                    definite: false,
+                };
 
-            results.declarations.insert(0, decl);
+                results.declarations.insert(0, decl);
+            }
         }
+    }
+
+    pub fn append_templates_dom(&mut self, module: &mut Module) {
+        if self.templates.is_empty() {
+            return;
+        }
+        let templ = self.register_import_method("template");
+        prepend_stmt(
+            &mut module.body,
+            ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                span: DUMMY_SP,
+                kind: VarDeclKind::Const,
+                declare: false,
+                decls: self
+                    .templates
+                    .drain(..)
+                    .map(|template| {
+                        let span = Span::dummy_with_cmt();
+                        self.comments.add_pure_comment(span.lo);
+                        let mut args = vec![ExprOrSpread {
+                            spread: None,
+                            expr: Box::new(
+                                Tpl {
+                                    span: DUMMY_SP,
+                                    exprs: vec![],
+                                    quasis: vec![TplElement {
+                                        span: DUMMY_SP,
+                                        tail: true,
+                                        cooked: None,
+                                        raw: template.template.into(),
+                                    }],
+                                }
+                                .into(),
+                            ),
+                        }];
+                        if template.is_svg || template.is_ce {
+                            args.push(ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Lit(template.is_ce.into())),
+                            });
+                            args.push(ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Lit(template.is_svg.into())),
+                            });
+                        }
+                        VarDeclarator {
+                            span: DUMMY_SP,
+                            name: template.id.into(),
+                            init: Some(Box::new(Expr::Call(CallExpr {
+                                span,
+                                callee: Callee::Expr(Box::new(Expr::Ident(templ.clone()))),
+                                args,
+                                type_args: None,
+                            }))),
+                            definite: false,
+                        }
+                    })
+                    .collect(),
+            })))),
+        )
     }
 }
 
@@ -180,7 +239,7 @@ fn wrap_dynamics<C: Comments>(
                             })]
                         })
                         .unwrap_or_default(),
-                    body: Box::new(BlockStmtOrExpr::Expr(Box::new(visitor.set_attr(
+                    body: Box::new(BlockStmtOrExpr::Expr(Box::new(visitor.set_attr_dom(
                         &dynamics[0].elem,
                         &dynamics[0].key,
                         &dynamics[0].value,
@@ -246,7 +305,7 @@ fn wrap_dynamics<C: Comments>(
                     span: Default::default(),
                     left: PatOrExpr::Expr(Box::new(prev.clone())),
                     op: AssignOp::Assign,
-                    right: Box::new(visitor.set_attr(
+                    right: Box::new(visitor.set_attr_dom(
                         &dynamic.elem,
                         &dynamic.key,
                         &Expr::Ident(identifier),
@@ -281,7 +340,7 @@ fn wrap_dynamics<C: Comments>(
                         })),
                     })),
                     op: BinaryOp::LogicalAnd,
-                    right: Box::new(visitor.set_attr(
+                    right: Box::new(visitor.set_attr_dom(
                         &dynamic.elem,
                         &dynamic.key,
                         &Expr::Assign(AssignExpr {

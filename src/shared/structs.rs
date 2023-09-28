@@ -94,11 +94,17 @@ where
     }
 
     pub fn create_template(&mut self, result: &mut TemplateInstantiation, wrap: bool) -> Expr {
-        self.create_template_dom(result, wrap)
+        match self.config.generate.as_str() {
+            "ssr" => self.create_template_ssr(result),
+            _ => self.create_template_dom(result, wrap),
+        }
     }
 
     pub fn append_templates(&mut self, module: &mut Module) {
-        self.append_templates_dom(module)
+        match self.config.generate.as_str() {
+            "ssr" => self.append_templates_ssr(module),
+            _ => self.append_templates_dom(module),
+        }
     }
 }
 

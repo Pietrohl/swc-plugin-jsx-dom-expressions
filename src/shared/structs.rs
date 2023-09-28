@@ -1,12 +1,16 @@
 use super::transform::VarBindingCollector;
-use crate::config::Config;
+use crate::{config::Config, dom::template::create_template_dom};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
 };
 use swc_core::{
-    common::comments::Comments,
-    ecma::{ast::*, minifier::eval::Evaluator, utils::private_ident},
+    common::{comments::Comments, Span, DUMMY_SP},
+    ecma::{
+        ast::*,
+        minifier::eval::Evaluator,
+        utils::{prepend_stmt, private_ident},
+    },
 };
 
 pub struct TemplateConstruction {
@@ -91,6 +95,70 @@ where
             self.uid_identifier_map.insert(name.clone(), 1);
             private_ident!(name)
         }
+    }
+
+    pub fn create_template(&mut self, result: &mut TemplateInstantiation, wrap: bool) -> Expr {
+        create_template_dom(self, result, wrap)
+    }
+
+    pub fn append_templates(&mut self, module: &mut Module) {
+        if self.templates.is_empty() {
+            return;
+        }
+        let templ = self.register_import_method("template");
+        prepend_stmt(
+            &mut module.body,
+            ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                span: DUMMY_SP,
+                kind: VarDeclKind::Const,
+                declare: false,
+                decls: self
+                    .templates
+                    .drain(..)
+                    .map(|template| {
+                        let span = Span::dummy_with_cmt();
+                        self.comments.add_pure_comment(span.lo);
+                        let mut args = vec![ExprOrSpread {
+                            spread: None,
+                            expr: Box::new(
+                                Tpl {
+                                    span: DUMMY_SP,
+                                    exprs: vec![],
+                                    quasis: vec![TplElement {
+                                        span: DUMMY_SP,
+                                        tail: true,
+                                        cooked: None,
+                                        raw: template.template.into(),
+                                    }],
+                                }
+                                .into(),
+                            ),
+                        }];
+                        if template.is_svg || template.is_ce {
+                            args.push(ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Lit(template.is_ce.into())),
+                            });
+                            args.push(ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Lit(template.is_svg.into())),
+                            });
+                        }
+                        VarDeclarator {
+                            span: DUMMY_SP,
+                            name: template.id.into(),
+                            init: Some(Box::new(Expr::Call(CallExpr {
+                                span,
+                                callee: Callee::Expr(Box::new(Expr::Ident(templ.clone()))),
+                                args,
+                                type_args: None,
+                            }))),
+                            definite: false,
+                        }
+                    })
+                    .collect(),
+            })))),
+        )
     }
 }
 

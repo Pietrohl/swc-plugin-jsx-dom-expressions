@@ -18,8 +18,8 @@ fn syntax() -> Syntax {
     })
 }
 
-#[fixture("tests/fixture/babel/**/code.js")]
-fn jsx_dom_expressions_fixture_babel(input: PathBuf) {
+#[fixture("tests/fixture/__dom_fixtures__/**/code.js")]
+fn jsx_dom_expressions_fixture_dom(input: PathBuf) {
     let output = input.parent().unwrap().join("output.js");
 
     test_fixture(
@@ -32,6 +32,33 @@ fn jsx_dom_expressions_fixture_babel(input: PathBuf) {
                         module_name: "r-dom".to_string(),
                         built_ins: vec!["For".to_string(), "Show".to_string()],
                         context_to_custom_elements: true,
+                        ..Default::default()
+                    },
+                    t.comments.clone()
+                ))
+            )
+        },
+        &input,
+        &output,
+        Default::default(),
+    );
+}
+
+#[fixture("tests/fixture/__ssr_fixtures__/**/code.js")]
+fn jsx_dom_expressions_fixture_ssr(input: PathBuf) {
+    let output = input.parent().unwrap().join("output.js");
+
+    test_fixture(
+        syntax(),
+        &|t| {
+            chain!(
+                resolver(Mark::new(), Mark::new(), false),
+                as_folder(TransformVisitor::new(
+                    Config {
+                        module_name: "r-ssr".to_string(),
+                        built_ins: vec!["For".to_string(), "Show".to_string()],
+                        context_to_custom_elements: true,
+                        generate: "ssr".to_string(),
                         ..Default::default()
                     },
                     t.comments.clone()

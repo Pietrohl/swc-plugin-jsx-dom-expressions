@@ -3,7 +3,9 @@ use crate::TransformVisitor;
 use swc_core::{
     common::{comments::Comments, DUMMY_SP},
     ecma::{
-        ast::{Decl, Expr, Module, ModuleItem, Stmt, VarDecl, VarDeclKind, VarDeclarator},
+        ast::{
+            ArrayLit, Decl, Expr, Module, ModuleItem, Stmt, VarDecl, VarDeclKind, VarDeclarator,
+        },
         utils::prepend_stmt,
     },
 };

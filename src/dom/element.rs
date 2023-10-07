@@ -4,7 +4,9 @@ use crate::{
             get_prop_alias, ALIASES, CHILD_PROPERTIES, DELEGATED_EVENTS, PROPERTIES, SVGNAMESPACE,
             SVG_ELEMENTS, VOID_ELEMENTS,
         },
-        structs::{DynamicAttr, ProcessSpreadsInfo, TemplateInstantiation},
+        structs::{
+            DynamicAttr, ProcessSpreadsInfo, SomeTemplate, StringTemplate, TemplateInstantiation,
+        },
         transform::{is_component, TransformInfo},
         utils::{
             can_native_spread, check_length, convert_jsx_identifier, escape_backticks, escape_html,
@@ -43,7 +45,7 @@ where
         let void_tag = VOID_ELEMENTS.contains(&tag_name.as_str());
         let is_custom_element = tag_name.contains('-');
         let mut results = TemplateInstantiation {
-            template: format!("<{}", tag_name),
+            template: SomeTemplate::StringTemplate(StringTemplate(format!("<{}", tag_name))),
             tag_name: tag_name.clone(),
             is_svg: wrap_svg,
             is_void: void_tag,
@@ -51,7 +53,7 @@ where
             ..Default::default()
         };
         if wrap_svg {
-            results.template = "<svg>".to_string() + results.template.as_str();
+            results.template.prepend("<svg>");
         }
         if !info.skip_id {
             results.id = Some(self.generate_uid_identifier("el$"));
@@ -61,7 +63,7 @@ where
         if self.config.context_to_custom_elements && (tag_name == "slot" || is_custom_element) {
             context_to_custom_element(self, &mut results);
         }
-        results.template += ">";
+        results.template.append(">");
 
         if !void_tag {
             // always close tags can still be skipped if they have no closing parents and are the last element
@@ -84,11 +86,11 @@ where
             }
             transform_children(self, &node, &mut results);
             if to_be_closed {
-                results.template += &format!("</{}>", tag_name);
+                results.template.append(&format!("</{}>", tag_name));
             }
         }
         if wrap_svg {
-            results.template += "</svg>";
+            results.template.append("</svg>");
         }
         results
     }
@@ -1412,7 +1414,7 @@ fn transform_attributes<C: Comments>(
                     if !is_svg {
                         key = key.to_lowercase();
                     }
-                    results.template += &format!(" {}", key);
+                    results.template.append(&format!(" {}", key));
 
                     if let Some(value) = value {
                         let mut text = lit_to_string(value);
@@ -1429,8 +1431,10 @@ fn transform_attributes<C: Comments>(
                                     .to_string();
                             }
                         }
-                        results.template +=
-                            &format!(r#"="{}""#, escape_backticks(&escape_html(&text, true)));
+                        results.template.append(&format!(
+                            r#"="{}""#,
+                            escape_backticks(&escape_html(&text, true))
+                        ));
                     } else {
                         continue;
                     }
@@ -1711,7 +1715,7 @@ fn transform_children<C: Comments>(
             if let Some(transformed) = transformed {
                 let i = memo.len();
                 if transformed.text && i > 0 && memo[i - 1].text {
-                    memo[i - 1].template += &transformed.template;
+                    memo[i - 1].template.append_template(&transformed.template);
                 } else {
                     memo.push(transformed);
                 }
@@ -1723,7 +1727,7 @@ fn transform_children<C: Comments>(
     );
 
     child_nodes.iter().enumerate().for_each(|(index, child)| {
-        results.template += &child.template;
+        results.template.append_template(&child.template);
         if child.id.is_some() {
             if child.tag_name == "head" {
                 return;
@@ -1861,7 +1865,7 @@ fn create_placeholder<C: Comments>(
     char: &str,
 ) -> (Ident, Option<ExprOrSpread>) {
     let expr_id = visitor.generate_uid_identifier("el$");
-    results.template += &format!("<!{}>", char);
+    results.template.append(&format!("<!{}>", char));
     results.declarations.push(VarDeclarator {
         span: DUMMY_SP,
         name: Pat::Ident(expr_id.clone().into()),

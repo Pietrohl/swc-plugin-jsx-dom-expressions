@@ -1,4 +1,4 @@
-use super::structs::TemplateInstantiation;
+use super::structs::{StringTemplate, TemplateInstantiation, SomeTemplate};
 use crate::shared::utils::{escape_backticks, escape_html, trim_whitespace};
 pub use crate::shared::{
     structs::TransformVisitor,
@@ -181,7 +181,7 @@ where
                 return None;
             }
             let mut results = TemplateInstantiation {
-                template: escape_backticks(&text),
+                template: SomeTemplate::StringTemplate(StringTemplate(escape_backticks(&text))),
                 text: true,
                 ..TemplateInstantiation::default()
             };
@@ -199,7 +199,7 @@ where
                 return None;
             }
             let mut results = TemplateInstantiation {
-                template: escape_backticks(&text),
+                template: SomeTemplate::StringTemplate(StringTemplate(escape_backticks(&text))),
                 text: true,
                 ..TemplateInstantiation::default()
             };

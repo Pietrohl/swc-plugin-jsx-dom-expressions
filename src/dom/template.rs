@@ -1,4 +1,4 @@
-use crate::shared::structs::{DynamicAttr, TemplateConstruction, TemplateInstantiation};
+use crate::shared::structs::{DynamicAttr, TemplateConstruction, TemplateInstantiation, SomeTemplate, StringTemplate};
 use crate::TransformVisitor;
 use swc_core::common::Span;
 use swc_core::ecma::utils::{quote_ident, prepend_stmt};
@@ -100,14 +100,14 @@ where
                 let template_def = self
                     .templates
                     .iter()
-                    .find(|t| t.template == results.template);
+                    .find(|t| SomeTemplate::StringTemplate(StringTemplate(t.template.clone())) == results.template);
                 if let Some(template_def) = template_def {
                     template_id = template_def.id.clone();
                 } else {
                     template_id = self.generate_uid_identifier("tmpl$");
                     self.templates.push(TemplateConstruction {
                         id: template_id.clone(),
-                        template: results.template.clone(),
+                        template: results.template.clone().into(),
                         is_svg: results.is_svg,
                         is_ce: results.has_custom_element,
                     });

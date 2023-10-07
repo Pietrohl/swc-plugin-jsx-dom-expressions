@@ -26,10 +26,96 @@ pub struct DynamicAttr {
     pub tag_name: String,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct StringTemplate(pub String);
+#[derive(Debug, Default, Clone)]
+pub struct VectorTemplate(Vec<String>);
+
+#[derive(Debug, Clone)]
+pub enum SomeTemplate {
+    StringTemplate(StringTemplate),
+    VectorTemplate(VectorTemplate),
+}
+
+impl Default for SomeTemplate {
+    fn default() -> Self {
+        SomeTemplate::StringTemplate(StringTemplate(String::new()))
+    }
+}
+impl PartialEq for SomeTemplate {
+    fn eq(&self, other: &Self) -> bool {
+        // check of both are of the same type and if so compare the inner values
+        match (self, other) {
+            (
+                SomeTemplate::StringTemplate(StringTemplate(ref string1)),
+                SomeTemplate::StringTemplate(StringTemplate(ref string2)),
+            ) => string1 == string2,
+            (
+                SomeTemplate::VectorTemplate(VectorTemplate(ref vec1)),
+                SomeTemplate::VectorTemplate(VectorTemplate(ref vec2)),
+            ) => vec1 == vec2,
+            _ => false,
+        }
+    }
+}
+
+impl Into<String> for SomeTemplate {
+    fn into(self) -> String {
+        match self {
+            SomeTemplate::StringTemplate(StringTemplate(string)) => string,
+            SomeTemplate::VectorTemplate(VectorTemplate(vec)) => vec.join(""),
+        }
+    }
+}
+
+
+impl SomeTemplate {
+    pub fn append(&mut self, s: &str) {
+        match self {
+            SomeTemplate::StringTemplate(StringTemplate(ref mut string)) => {
+                string.push_str(s);
+            }
+            SomeTemplate::VectorTemplate(VectorTemplate(ref mut vec)) => {
+                vec.push(s.to_owned());
+            }
+        }
+    }
+
+    // prepend a string to the template either as a string or as a vector
+    pub fn prepend(&mut self, s: &str) {
+        match self {
+            SomeTemplate::StringTemplate(StringTemplate(ref mut string)) => {
+                string.insert_str(0, s);
+            }
+            SomeTemplate::VectorTemplate(VectorTemplate(ref mut vec)) => {
+                vec.insert(0, s.to_owned());
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            SomeTemplate::StringTemplate(StringTemplate(ref string)) => string.is_empty(),
+            SomeTemplate::VectorTemplate(VectorTemplate(ref vec)) => vec.is_empty(),
+        }
+    }
+
+    pub fn append_template(&mut self, template: &SomeTemplate) {
+        match template {
+            SomeTemplate::StringTemplate(StringTemplate(ref string)) => {
+                self.append(string);
+            }
+            _ => {
+                panic!("append_template: not implemented for VectorTemplate");
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TemplateInstantiation {
     pub component: bool,
-    pub template: String,
+    pub template: SomeTemplate,
     pub declarations: Vec<VarDeclarator>,
     pub id: Option<Ident>,
     pub tag_name: String,
@@ -94,17 +180,21 @@ where
     }
 
     pub fn create_template(&mut self, result: &mut TemplateInstantiation, wrap: bool) -> Expr {
-        match self.config.generate.as_str() {
-            "ssr" => self.create_template_ssr(result),
-            _ => self.create_template_dom(result, wrap),
-        }
+
+        self.create_template_dom(result, wrap)
+        // match self.config.generate.as_str() {
+        //     "ssr" => self.create_template_ssr(result),
+        //     _ => self.create_template_dom(result, wrap),
+        // }
     }
 
     pub fn append_templates(&mut self, module: &mut Module) {
-        match self.config.generate.as_str() {
-            "ssr" => self.append_templates_ssr(module),
-            _ => self.append_templates_dom(module),
-        }
+        self.append_templates_dom(module)
+
+        // match self.config.generate.as_str() {
+        //     "ssr" => self.append_templates_ssr(module),
+        //     _ => self.append_templates_dom(module),
+        // }
     }
 }
 

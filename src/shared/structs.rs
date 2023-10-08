@@ -145,7 +145,7 @@ pub struct TemplateInstantiation {
     pub dynamic: bool,
     pub to_be_closed: Option<HashSet<String>>,
     pub skip_template: bool,
-    pub template_values: Vec<String>,
+    pub template_values: Vec<Expr>,
     pub wont_escape: bool,
     pub renderer: RendererEnum,
 }

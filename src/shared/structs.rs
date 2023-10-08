@@ -26,10 +26,27 @@ pub struct DynamicAttr {
     pub tag_name: String,
 }
 
+#[derive(Clone, Debug)]
+pub enum RendererEnum {
+    DOM,
+    SSR,
+}
+
+impl RendererEnum {
+    pub const DOM: &'static str = "dom";
+    pub const SSR: &'static str = "ssr";
+}
+
+impl Default for RendererEnum {
+    fn default() -> Self {
+        RendererEnum::DOM
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct StringTemplate(pub String);
 #[derive(Debug, Default, Clone)]
-pub struct VectorTemplate(Vec<String>);
+pub struct VectorTemplate(pub Vec<String>);
 
 #[derive(Debug, Clone)]
 pub enum SomeTemplate {
@@ -67,7 +84,6 @@ impl Into<String> for SomeTemplate {
         }
     }
 }
-
 
 impl SomeTemplate {
     pub fn append(&mut self, s: &str) {
@@ -129,6 +145,9 @@ pub struct TemplateInstantiation {
     pub dynamic: bool,
     pub to_be_closed: Option<HashSet<String>>,
     pub skip_template: bool,
+    pub template_values: Vec<String>,
+    pub wont_escape: bool,
+    pub renderer: RendererEnum,
 }
 
 pub struct TransformVisitor<C>
@@ -180,21 +199,17 @@ where
     }
 
     pub fn create_template(&mut self, result: &mut TemplateInstantiation, wrap: bool) -> Expr {
-
-        self.create_template_dom(result, wrap)
-        // match self.config.generate.as_str() {
-        //     "ssr" => self.create_template_ssr(result),
-        //     _ => self.create_template_dom(result, wrap),
-        // }
+        match self.config.generate.as_str() {
+            // "ssr" => self.create_template_ssr(result),
+            _ => self.create_template_dom(result, wrap),
+        }
     }
 
     pub fn append_templates(&mut self, module: &mut Module) {
-        self.append_templates_dom(module)
-
-        // match self.config.generate.as_str() {
-        //     "ssr" => self.append_templates_ssr(module),
-        //     _ => self.append_templates_dom(module),
-        // }
+        match self.config.generate.as_str() {
+            // "ssr" => self.append_templates_ssr(module),
+            _ => self.append_templates_dom(module),
+        }
     }
 }
 
